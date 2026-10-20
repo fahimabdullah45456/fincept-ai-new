@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: fincept-ai-web
+    runtime: python
+    plan: 0.5c-512mb
+    buildCommand: npm ci && npm run build && pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_PATH
+        value: /var/data/fincept.sqlite3
+      - key: FRONTEND_ORIGINS
+        value: https://fincept-ai-web.onrender.com
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: TRUSTED_HOSTS
+        value: fincept-ai-web.onrender.com
+      - key: PYTHON_VERSION
+        value: 3.13.0
+    disk:
+      name: fincept-data
+      mountPath: /var/data
+      sizeGB: 1
