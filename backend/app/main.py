@@ -17,17 +17,23 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from starlette.staticfiles import StaticFiles
 
 load_dotenv()
 
 @dataclass(frozen=True)
 class Settings:
     database_path: str = os.getenv('DATABASE_PATH', './data/fincept.sqlite3')
-    frontend_origins: tuple[str, ...] = tuple(x.strip() for x in os.getenv('FRONTEND_ORIGINS', 'http://127.0.0.1:5173,http://localhost:5173').split(',') if x.strip())
+    frontend_origins: tuple[str, ...] = tuple(
+        x.strip()
+        for x in os.getenv(
+            'FRONTEND_ORIGINS',
+            'http://localhost:5173,http://127.0.0.1:5173,https://fincept-ai-new.onrender.com'
+        ).split(',')
+        if x.strip()
+    )
     cookie_secure: bool = os.getenv('COOKIE_SECURE', 'false').lower() == 'true'
     environment: str = os.getenv('APP_ENV', 'development')
     session_hours: int = int(os.getenv('SESSION_HOURS', '8'))
@@ -129,11 +135,23 @@ def create_app(settings: Settings | None = None, *, assistant_provider=None):
         yield
 
     api = FastAPI(title='FINCEPT AI', version='0.1.0', lifespan=lifespan)
-    api.add_middleware(CORSMiddleware, allow_origins=list(config.frontend_origins),
-                       allow_credentials=True, allow_methods=['GET','POST','PATCH','DELETE'],
-                       allow_headers=['Content-Type','X-Fincept-Request'])
+    api.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(config.frontend_origins),
+        allow_credentials=True,
+        allow_methods=['*'],
+        allow_headers=['*'],
+    )
     # Set TRUSTED_HOSTS at deployment to the actual API host(s).
-    api.add_middleware(TrustedHostMiddleware, allowed_hosts=os.getenv('TRUSTED_HOSTS', 'localhost,127.0.0.1,testserver').split(','))
+    trusted_hosts = [
+        host.strip()
+        for host in os.getenv(
+            'TRUSTED_HOSTS',
+            'fincept-ai-backend.onrender.com,localhost,127.0.0.1,testserver'
+        ).split(',')
+        if host.strip()
+    ]
+    api.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
 
     @api.middleware('http')
     async def security_headers(request, call_next):
@@ -301,18 +319,6 @@ def create_app(settings: Settings | None = None, *, assistant_provider=None):
     api.include_router(debt_router(db, current_user, config.environment))
     from .hub.routes import hub_router
     api.include_router(hub_router(db, current_user, config.environment))
-
-    # Render (and other single-service deployments) builds the React application
-    # into the repository's dist/ directory. Serve its assets and fall back to
-    # index.html so BrowserRouter routes continue to work on page refresh.
-    frontend_dist = Path(__file__).resolve().parents[2] / 'dist'
-    if frontend_dist.is_dir():
-        api.mount('/assets', StaticFiles(directory=frontend_dist / 'assets'), name='frontend-assets')
-
-        @api.get('/{frontend_path:path}', include_in_schema=False)
-        async def frontend(frontend_path: str):
-            return FileResponse(frontend_dist / 'index.html')
-
     return api
 
 app = create_app()
