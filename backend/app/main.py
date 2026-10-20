@@ -17,9 +17,10 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.staticfiles import StaticFiles
 
 load_dotenv()
 
@@ -319,6 +320,17 @@ def create_app(settings: Settings | None = None, *, assistant_provider=None):
     api.include_router(debt_router(db, current_user, config.environment))
     from .hub.routes import hub_router
     api.include_router(hub_router(db, current_user, config.environment))
+
+    # The Render service builds the Vite application into dist/. Serve the
+    # compiled assets and return index.html for client-side BrowserRouter paths.
+    frontend_dist = Path(__file__).resolve().parents[2] / 'dist'
+    if frontend_dist.is_dir():
+        api.mount('/assets', StaticFiles(directory=frontend_dist / 'assets'), name='frontend-assets')
+
+        @api.get('/{frontend_path:path}', include_in_schema=False)
+        async def frontend(frontend_path: str):
+            return FileResponse(frontend_dist / 'index.html')
+
     return api
 
 app = create_app()
